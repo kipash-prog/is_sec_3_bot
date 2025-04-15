@@ -30,6 +30,12 @@ def save_user_ids():
 def load_user_ids():
     global user_ids
     try:
+        # Add your code here
+        pass
+    except Exception as e:
+        print(f"❌ An error occurred: {e}")
+    except Exception as e:
+        print(f"❌ An error occurred: {e}")
         with open("user_ids.json", "r") as f:
             user_ids = set(json.load(f))
     except FileNotFoundError:
@@ -83,7 +89,7 @@ async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT
     keyboard = [[subject] for subject in subjects]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        "📚 Please select the subject for which you want to submit the assignment:",
+        "📚 * Enter the Date when u submit assignment in the caption * Please select the subject for which you want to submit the assignment:",
         reply_markup=reply_markup
     )
     context.user_data["selecting_subject"] = True
@@ -102,7 +108,8 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
             "file_name": file.file_name,
             "file_id": file.file_id,
             "submitted_by": update.effective_user.username or "Unknown User",
-            "subject": subject  # Ensure "subject" key is always added
+            "subject": subject,  # Ensure "subject" key is always added
+            "submission_date": datetime.now().strftime("%Y-%m-%d")  # Add submission date
         })
         save_submitted_files()
 
@@ -123,6 +130,7 @@ async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_
             "📚 Please select the subject to view assignments:",
             reply_markup=reply_markup
         )
+
         context.user_data["viewing_subject"] = True
     else:
         await update.message.reply_text("❌ You are not authorized to view assignments.")
@@ -262,6 +270,31 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Invalid subject. Please select a valid subject from the list.")
         return
+    if context.user_data.get("filtering_by_date"):
+        try:
+            # Parse the entered date
+            entered_date = datetime.strptime(text, "%Y-%m-%d").strftime("%Y-%m-%d")
+            context.user_data["filtering_by_date"] = False
+        except ValueError:
+            await update.message.reply_text("❌ Invalid date format. Please enter the date in `YYYY-MM-DD` format.")
+            return
+
+    try:
+        # Filter assignments by the entered date
+        date_files = [file for file in submitted_files if file.get("submission_date") == entered_date]
+        if date_files:
+            for file in date_files:
+                await context.bot.send_document(
+                    chat_id=ADMIN_ID,
+                    document=file["file_id"],
+                    caption=f"📂 File: {file['file_name']}\nSubject: {file['subject']}\nSubmitted by: @{file['submitted_by']}\nDate: {file['submission_date']}"
+                )
+            await update.message.reply_text(f"✅ All assignments submitted on *{entered_date}* have been sent to you.")
+        else:
+            await update.message.reply_text(f"ℹ️ No assignments were submitted on *{entered_date}*.")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid date format. Please enter the date in `YYYY-MM-DD` format.")
+    return
     # Exam scheduling steps
     if "adding_exam" in context.user_data:
         step = context.user_data["adding_exam"]["step"]
