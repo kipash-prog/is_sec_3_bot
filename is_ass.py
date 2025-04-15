@@ -1,186 +1,291 @@
 import os
+import json
+import uuid
+import asyncio
+from datetime import datetime
 from dotenv import load_dotenv
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ContextTypes, filters
+)
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID")  # Add the admin's Telegram ID in the .env file
+ADMIN_ID = os.getenv("ADMIN_ID")
+
+if not BOT_TOKEN or not ADMIN_ID:
+    raise ValueError("BOT_TOKEN or ADMIN_ID not found in .env file.")
 
 exam_dates = []
-submitted_files = []  # Store submitted file details for the admin to view
+submitted_files = []
+user_ids = set()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Define the buttons
-    if str(update.effective_user.id) == ADMIN_ID:
-        keyboard = [
-            ["Submit Group Assignment", "Submit Individual Assignment"],
-            ["Exam Announcement","View Assignments"],
-            ["Add Exam Date"]  # Admin-only button
-        ]
-    else:
-        keyboard = [
-            ["Submit Group Assignment", "Submit Individual Assignment"],
-            ["Exam Announcement","Buy me coffee"]
-        ]
+# === File I/O Helpers ===
+def save_user_ids():
+    with open("user_ids.json", "w") as f:
+        json.dump(list(user_ids), f)
+
+def load_user_ids():
+    global user_ids
+    try:
+        with open("user_ids.json", "r") as f:
+            user_ids = set(json.load(f))
+    except FileNotFoundError:
+        user_ids = set()
+
+def save_exam_dates():
+    with open("exam_dates.json", "w") as f:
+        json.dump(exam_dates, f)
+
+def load_exam_dates():
+    global exam_dates
+    try:
+        with open("exam_dates.json", "r") as f:
+            exam_dates = json.load(f)
+    except FileNotFoundError:
+        exam_dates = []
+
+def save_submitted_files():
+    with open("submitted_files.json", "w") as f:
+        json.dump(submitted_files, f)
+
+def load_submitted_files():
+    global submitted_files
+    try:
+        with open("submitted_files.json", "r") as f:
+            submitted_files = json.load(f)
+    except FileNotFoundError:
+        submitted_files = []
+
+# Load data on startup
+load_user_ids()
+load_exam_dates()
+load_submitted_files()
+
+# === Bot Handlers ===
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_ids.add(update.effective_user.id)
+    save_user_ids()
+    is_admin = str(update.effective_user.id) == ADMIN_ID
+    keyboard = [
+        ["Exam Announcement", "View Assignments"] if is_admin else ["Submit Group Assignment", "Submit Individual Assignment"],
+        ["Add Exam Date", "Delete Exam"] if is_admin else [],
+        ["Post Message", "Buy me coffee"] if is_admin else ["Exam Announcement", "Buy me coffee"]
+    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    name = update.effective_user.first_name or "Student"
+    await update.message.reply_text(f"Hello {name}! Welcome to IS section 3 Bot:", reply_markup=reply_markup)
 
-    user_name = update.effective_user.first_name or "Student"
-    await update.message.reply_text(
-        f"Hello {user_name}! 👋\nWelcome to  IS section 3 Bot, Am ur virtual assistance. Please choose an option below:",
-        reply_markup=reply_markup
-    )
-
-async def buy_me_coffee(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Buy me a coffee? @kipa_s 😁😁😁i can't wait dawg...")
-async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Prompt the user to send a file
+async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     option = update.message.text
     if "Group" in option:
-        await update.message.reply_text(
-            "You selected **Submit Group Assignment**. 📂\nPlease upload your group assignment file now."
-        )
+        await update.message.reply_text("*You selected Submit Group Assignment.*\nPlease upload your file.", parse_mode="Markdown")
     elif "Individual" in option:
-        await update.message.reply_text(
-            "You selected **Submit Individual Assignment**. 📄\nPlease upload your individual assignment file now."
-        )
+        await update.message.reply_text("*You selected Submit Individual Assignment.*\nPlease upload your file.", parse_mode="Markdown")
 
-async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        # Get the file sent by the user
-        if update.message.document:
-            file = update.message.document
-            file_id = file.file_id
-            file_name = file.file_name
+async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.document:
+        file = update.message.document
+        os.makedirs("submissions", exist_ok=True)
+        file_path = f"submissions/{file.file_name}"
+        new_file = await context.bot.get_file(file.file_id)
+        await new_file.download_to_drive(file_path)
 
-            # Download the file
-            file_path = f"submissions/{file_name}"
-            os.makedirs("submissions", exist_ok=True)  # Ensure the submissions folder exists
-            new_file = await context.bot.get_file(file_id)
-            await new_file.download_to_drive(file_path)
+        submitted_files.append({
+            "file_name": file.file_name,
+            "file_id": file.file_id,
+            "submitted_by": update.effective_user.username or "Unknown User"
+        })
+        save_submitted_files()
 
-            await update.message.reply_text(
-                f"✅ Your file '{file_name}' has been successfully submitted! 🎉\nThank you for submitting your assignment."
-            )
+        await update.message.reply_text(f"✅ File '{file.file_name}' submitted successfully!")
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"📥 New assignment submitted by @{update.effective_user.username or 'Unknown'}.")
+    else:
+        await update.message.reply_text("⚠️ Please send a valid document.")
 
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text="📥 New assignment is submitted."
-            )
-
-            submitted_files.append({"file_name": file_name, "file_id": file_id, "submitted_by": update.effective_user.username or "Unknown User"})
-        else:
-            await update.message.reply_text("⚠️ Please send a valid file. Only documents are accepted.")
-    except Exception as e:
-        # Notify the user of the failure
-        await update.message.reply_text(
-            "❌ There was an error submitting your file. Please try again later or contact support."
-        )
-        print(f"Error: {e}")
-
-async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) == ADMIN_ID:
         if submitted_files:
             for file in submitted_files:
                 await context.bot.send_document(
                     chat_id=ADMIN_ID,
                     document=file["file_id"],
-                    caption=f"📂 File: {file['file_name']}\nSubmitted by: @{file['submitted_by']}"
+                    caption=f"📂 {file['file_name']} submitted by @{file['submitted_by']}"
                 )
         else:
-            await update.message.reply_text("ℹ️ No assignments have been submitted yet.")
+            await update.message.reply_text("ℹ️ No assignments submitted yet.")
     else:
-        await update.message.reply_text("❌ You are not authorized to view this information.")
+        await update.message.reply_text("❌ You are not authorized.")
 
-
-async def handle_add_exam_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_add_exam_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) == ADMIN_ID:
-        await update.message.reply_text(
-            "Please enter the exam name."
-        )
         context.user_data["adding_exam"] = {"step": "name"}
-    else:
-        await update.message.reply_text("❌ You are not authorized to add exam details.")
+        await update.message.reply_text("📚 Enter exam name:")
 
-async def process_exam_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_delete_exam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not exam_dates:
+        await update.message.reply_text("📭 No exams to delete.")
+        return
+    context.user_data["deleting_exam"] = True
+    await show_exams(update, context)
+    await update.message.reply_text("Please enter the exam number to delete.")
+
+async def handle_exam_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if exam_dates:
+        keyboard = [[InlineKeyboardButton(f"📚 {exam['name']}", callback_data=f"exam_{i}")] for i, exam in enumerate(exam_dates)]
+        await update.message.reply_text("📅 Scheduled exams:", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("ℹ️ No exams scheduled.")
+
+async def handle_exam_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    index = int(query.data.split("_")[1])
+    if 0 <= index < len(exam_dates):
+        exam = exam_dates[index]
+        await query.edit_message_text(
+            f"📚Exam name: {exam['name']}\n📅Exam Date: {exam['date']}\n⏰Exam Time: {exam['time']}\n📝Exam Content: {exam['content']}\n\n✅ Stay prepared!"
+        )
+
+async def handle_post_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) == ADMIN_ID:
+        context.user_data["pending_broadcast"] = True
+        await update.message.reply_text("✉️ Send the message to broadcast.")
+
+async def buy_me_coffee(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Buy me coffee? @kipa_s 😁")
+
+async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+
+    if context.user_data.get("deleting_exam"):
+        try:
+            idx = int(text) - 1
+            if 0 <= idx < len(exam_dates):
+                removed = exam_dates.pop(idx)
+                save_exam_dates()
+                await update.message.reply_text(f"✅ Deleted exam: {removed['name']}")
+            else:
+                await update.message.reply_text("❌ Invalid exam number.")
+        except ValueError:
+            await update.message.reply_text("❌ Please enter a valid number.")
+        context.user_data.pop("deleting_exam")
+        return
+
+    if context.user_data.get("pending_broadcast"):
+        context.user_data["broadcast_message"] = text
+        context.user_data["confirm_broadcast"] = True
+        context.user_data["pending_broadcast"] = False
+        await update.message.reply_text(f"📢 Preview:\n{text}\n\nType 'yes' to send or 'no' to cancel.")
+        return
+
+    if context.user_data.get("confirm_broadcast"):
+        if text.lower() == "yes":
+            message = context.user_data["broadcast_message"]
+            failed = 0
+            for uid in user_ids:
+                try:
+                    await context.bot.send_message(chat_id=uid, text=message)
+                except Exception:
+                    failed += 1
+            await update.message.reply_text(f"✅ Broadcast complete. Failed to reach {failed} user(s).")
+        else:
+            await update.message.reply_text("❌ Broadcast canceled.")
+        context.user_data.pop("confirm_broadcast", None)
+        context.user_data.pop("broadcast_message", None)
+        return
+
+    # Exam scheduling steps
     if "adding_exam" in context.user_data:
         step = context.user_data["adding_exam"]["step"]
 
         if step == "name":
-            context.user_data["adding_exam"]["name"] = update.message.text.strip()
+            context.user_data["adding_exam"]["name"] = text
             context.user_data["adding_exam"]["step"] = "date"
-            await update.message.reply_text("Please enter the exam date in the format `YYYY-MM-DD`.")
-        
+            await update.message.reply_text("📅 Enter exam date (YYYY-MM-DD):")
+
         elif step == "date":
-            exam_date = update.message.text.strip()
-            if len(exam_date) == 10 and exam_date.count("-") == 2:
-                context.user_data["adding_exam"]["date"] = exam_date
+            try:
+                datetime.strptime(text, "%Y-%m-%d")
+                context.user_data["adding_exam"]["date"] = text
                 context.user_data["adding_exam"]["step"] = "time"
-                await update.message.reply_text("Please enter the exam time in the format `HH:MM`.")
-            else:
-                await update.message.reply_text("❌ Invalid date format. Please enter the date in the format `YYYY-MM-DD`.")
-        
+                await update.message.reply_text("⏰ Enter exam time (HH:MM):")
+            except ValueError:
+                await update.message.reply_text("❌ Invalid date format.")
+
         elif step == "time":
-            exam_time = update.message.text.strip()
-            if len(exam_time) == 5 and exam_time.count(":") == 1:
-                context.user_data["adding_exam"]["time"] = exam_time
+            try:
+                datetime.strptime(text, "%H:%M")
+                context.user_data["adding_exam"]["time"] = text
+                context.user_data["adding_exam"]["step"] = "content"
+                await update.message.reply_text("📝 Enter exam content (e.g., syllabus):")
+            except ValueError:
+                await update.message.reply_text("❌ Invalid time format.")
 
-                exam_name = context.user_data["adding_exam"]["name"]
-                exam_date = context.user_data["adding_exam"]["date"]
-                exam_time = context.user_data["adding_exam"]["time"]
-                exam_details = f"{exam_name} on {exam_date} at {exam_time}"
-                exam_dates.append(exam_details)
+        elif step == "content":
+            context.user_data["adding_exam"]["content"] = text
+            context.user_data["adding_exam"]["step"] = "verify"
+            data = context.user_data["adding_exam"]
+            await update.message.reply_text(
+                f"📚 Confirm:\nName: {data['name']}\nDate: {data['date']}\nTime: {data['time']}\nContent: {data['content']}\nType 'yes' to confirm or 'no' to cancel."
+            )
 
+        elif step == "verify":
+            if text.lower() == "yes":
+                data = context.user_data["adding_exam"]
+                exam_dates.append({"id": str(uuid.uuid4()), **data})
                 if len(exam_dates) > 4:
                     exam_dates.pop(0)
-
-                await update.message.reply_text(f"✅ Exam '{exam_name}' has been scheduled for {exam_date} at {exam_time}!")
-                # Clear the flag
-                del context.user_data["adding_exam"]
+                save_exam_dates()
+                await update.message.reply_text(f"✅ Exam '{data['name']}' scheduled.")
             else:
-                await update.message.reply_text("❌ Invalid time format. Please enter the time in the format `HH:MM`.")
+                await update.message.reply_text("❌ Exam scheduling canceled.")
+            context.user_data.pop("adding_exam")
 
-# Define a handler for viewing exam announcements
-async def handle_exam_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if str(update.effective_user.id) == ADMIN_ID:
-        # Admin can view all exam details
-        if exam_dates:
-            await update.message.reply_text(
-                "📅 Here are the scheduled exams:\n" + "\n".join(f"- {exam}" for exam in exam_dates)
-            )
-        else:
-            await update.message.reply_text("ℹ️ No exams have been scheduled yet.")
+async def remove_past_exams():
+    while True:
+        now = datetime.now()
+        for exam in list(exam_dates):
+            if datetime.strptime(exam["date"], "%Y-%m-%d") < now:
+                exam_dates.remove(exam)
+        save_exam_dates()
+        await asyncio.sleep(3600)
+
+async def show_exams(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if exam_dates:
+        msg = "\n".join([
+            f"{i+1}. {e['name']} - {e['date']} {e['time']} (ID: {e['id'][:6]})" for i, e in enumerate(exam_dates)
+        ])
+        await update.message.reply_text(f"📚 Exams:\n{msg}")
     else:
-        # Students can view the last 4 exam details
-        if exam_dates:
-            await update.message.reply_text(
-                "📅 Here are the last 4 scheduled exams:\n" + "\n".join(f"- {exam}" for exam in exam_dates)
-            )
-        else:
-            await update.message.reply_text("ℹ️ No exams have been scheduled yet.")
+        await update.message.reply_text("ℹ️ No exams scheduled.")
+
+# === Main App ===
 def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("exams", show_exams))
+    app.add_handler(CallbackQueryHandler(handle_exam_details))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Submit Group Assignment"), handle_assignment_button))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Submit Individual Assignment"), handle_assignment_button))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Exam Announcement"), handle_exam_announcement))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Add Exam Date"), handle_add_exam_date))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Delete Exam"), handle_delete_exam))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("View Assignments"), handle_view_assignments))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Post Message"), handle_post_message))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Buy me coffee"), buy_me_coffee))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_file_submission))
+    app.add_handler(MessageHandler(filters.TEXT, text_router))
 
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("Submit Group Assignment"), handle_assignment_button))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("Submit Individual Assignment"), handle_assignment_button))
+    async def startup(_: ApplicationBuilder):
+        asyncio.create_task(remove_past_exams())
 
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("Exam Announcement"), handle_exam_announcement))
-
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("Add Exam Date"), handle_add_exam_date))
-     
-
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("Buy me coffee"), buy_me_coffee))
-    
-    application.add_handler(MessageHandler(filters.TEXT, process_exam_date))
-
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("View Assignments"), handle_view_assignments))
-
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_file_submission))
-
-    application.run_polling()
+    app.post_init = startup
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
