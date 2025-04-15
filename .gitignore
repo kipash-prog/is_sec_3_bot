@@ -3,4 +3,5 @@
 .env.local
 .env.*.local
 user_ids.json
-submissions
+submitted_files.json
+exam_dates.json

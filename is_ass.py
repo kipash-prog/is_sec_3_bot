@@ -14,7 +14,7 @@ from telegram.ext import (
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
-
+subjects = ["Internet programming(IP)", "Information security", "networking", "ecommerce", "OOSAD", "Mobile computing"]
 if not BOT_TOKEN or not ADMIN_ID:
     raise ValueError("BOT_TOKEN or ADMIN_ID not found in .env file.")
 
@@ -79,47 +79,53 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.effective_user.first_name or "Student"
     await update.message.reply_text(f"Hello {name}! Welcome to IS section 3 Bot:", reply_markup=reply_markup)
 
-async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    option = update.message.text
-    if "Group" in option:
-        await update.message.reply_text("*You selected Submit Group Assignment.*\nPlease upload your file.", parse_mode="Markdown")
-    elif "Individual" in option:
-        await update.message.reply_text("*You selected Submit Individual Assignment.*\nPlease upload your file.", parse_mode="Markdown")
+async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    keyboard = [[subject] for subject in subjects]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(
+        "📚 Please select the subject for which you want to submit the assignment:",
+        reply_markup=reply_markup
+    )
+    context.user_data["selecting_subject"] = True
+
 
 async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.document:
         file = update.message.document
-        os.makedirs("submissions", exist_ok=True)
-        file_path = f"submissions/{file.file_name}"
+        subject = context.user_data.get("selected_subject", "Unknown Subject")  # Default to "Unknown Subject"
+        os.makedirs(f"submissions/{subject}", exist_ok=True)
+        file_path = f"submissions/{subject}/{file.file_name}"
         new_file = await context.bot.get_file(file.file_id)
         await new_file.download_to_drive(file_path)
 
         submitted_files.append({
             "file_name": file.file_name,
             "file_id": file.file_id,
-            "submitted_by": update.effective_user.username or "Unknown User"
+            "submitted_by": update.effective_user.username or "Unknown User",
+            "subject": subject  # Ensure "subject" key is always added
         })
         save_submitted_files()
 
-        await update.message.reply_text(f"✅ File '{file.file_name}' submitted successfully!")
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"📥 New assignment submitted by @{update.effective_user.username or 'Unknown'}.")
+        await update.message.reply_text(f"✅ File '{file.file_name}' for *{subject}* submitted successfully!")
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"📥 New assignment submitted for *{subject}* by @{update.effective_user.username or 'Unknown'}."
+        )
+        context.user_data.pop("selected_subject", None)
     else:
         await update.message.reply_text("⚠️ Please send a valid document.")
-
-async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        
+async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if str(update.effective_user.id) == ADMIN_ID:
-        if submitted_files:
-            for file in submitted_files:
-                await context.bot.send_document(
-                    chat_id=ADMIN_ID,
-                    document=file["file_id"],
-                    caption=f"📂 {file['file_name']} submitted by @{file['submitted_by']}"
-                )
-        else:
-            await update.message.reply_text("ℹ️ No assignments submitted yet.")
+        keyboard = [[subject] for subject in subjects]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text(
+            "📚 Please select the subject to view assignments:",
+            reply_markup=reply_markup
+        )
+        context.user_data["viewing_subject"] = True
     else:
-        await update.message.reply_text("❌ You are not authorized.")
-
+        await update.message.reply_text("❌ You are not authorized to view assignments.")
 async def handle_add_exam_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) == ADMIN_ID:
         context.user_data["adding_exam"] = {"step": "name"}
@@ -197,7 +203,65 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("confirm_broadcast", None)
         context.user_data.pop("broadcast_message", None)
         return
+    
+    if context.user_data.get("selecting_subject"):
+        if text in subjects:
+            context.user_data["selected_subject"] = text
+            context.user_data["selecting_subject"] = False
+            await update.message.reply_text(
+                f"✅ You selected *{text}*. Please upload your assignment file now.",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("❌ Invalid subject. Please select a valid subject from the list.")
+        return
 
+    if update.message.document:
+        if "selected_subject" in context.user_data:
+            subject = context.user_data["selected_subject"]
+            file = update.message.document
+            os.makedirs(f"submissions/{subject}", exist_ok=True)
+            file_path = f"submissions/{subject}/{file.file_name}"
+            new_file = await context.bot.get_file(file.file_id)
+            await new_file.download_to_drive(file_path)
+
+            submitted_files.append({
+                "file_name": file.file_name,
+                "file_id": file.file_id,
+                "submitted_by": update.effective_user.username or "Unknown User",
+                "subject": subject
+            })
+            save_submitted_files()
+
+            await update.message.reply_text(f"✅ File '{file.file_name}' for *{subject}* submitted successfully!")
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"📥 New assignment submitted for *{subject}* by @{update.effective_user.username or 'Unknown'}."
+            )
+            context.user_data.pop("selected_subject", None)
+        else:
+            await update.message.reply_text("⚠️ Please select a subject first.")
+        return
+    
+        # Handle subject selection for viewing assignments
+    if context.user_data.get("viewing_subject"):
+        if text in subjects:
+            context.user_data["viewing_subject"] = False
+            subject_files = [file for file in submitted_files if file.get("subject") == text]  # Use .get() to avoid KeyError
+            if subject_files:
+                for file in subject_files:
+                    await context.bot.send_document(
+                        chat_id=ADMIN_ID,
+                        document=file["file_id"],
+                        caption=f"📂 File: {file['file_name']}\nSubmitted by: @{file['submitted_by']}"
+                    )
+                await update.message.reply_text(f"✅ All assignments for *{text}* have been sent to you.")
+
+            else:
+                await update.message.reply_text(f"ℹ️ No assignments submitted for *{text}*.")
+        else:
+            await update.message.reply_text("❌ Invalid subject. Please select a valid subject from the list.")
+        return
     # Exam scheduling steps
     if "adding_exam" in context.user_data:
         step = context.user_data["adding_exam"]["step"]
@@ -263,12 +327,41 @@ async def show_exams(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("ℹ️ No exams scheduled.")
 
+async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    is_admin = str(update.effective_user.id) == ADMIN_ID
+    if is_admin:
+        help_text = (
+            "📖 *Help Menu (Admin)*\n\n"
+            "/start - Start the bot and display the main menu.\n"
+            "/exams - View the list of scheduled exams.\n"
+            "/help - Show this help message.\n\n"
+            "*Admin Features:*\n"
+            "1. Add Exam Date - Schedule a new exam.\n"
+            "2. Delete Exam - Remove an existing exam.\n"
+            "3. Post Message - Broadcast a message to all users.\n"
+            "4. View Assignments - Access submitted assignments.\n"
+        )
+    else:
+        help_text = (
+            "📖 *Help Menu (Student)*\n\n"
+            "/start - Start the bot and display the main menu.\n"
+            "/exams - View the list of scheduled exams.\n"
+            "/help - Show this help message.\n\n"
+            "*Student Features:*\n"
+            "1. Submit Group Assignment - Upload your group assignment.\n"
+            "2. Submit Individual Assignment - Upload your individual assignment.\n"
+            "3. Exam Announcement - View scheduled exams.\n"
+            "4. Buy Me Coffee - A fun interaction with the bot.\n"
+        )
+    await update.message.reply_text(help_text, parse_mode="Markdown")
 # === Main App ===
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("exams", show_exams))
+    app.add_handler(CommandHandler("help", handle_help))
+
     app.add_handler(CallbackQueryHandler(handle_exam_details))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Submit Group Assignment"), handle_assignment_button))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Submit Individual Assignment"), handle_assignment_button))
@@ -280,7 +373,6 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Buy me coffee"), buy_me_coffee))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file_submission))
     app.add_handler(MessageHandler(filters.TEXT, text_router))
-
     async def startup(_: ApplicationBuilder):
         asyncio.create_task(remove_past_exams())
 
