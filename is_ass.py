@@ -83,13 +83,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     name = update.effective_user.first_name or "Student"
-    await update.message.reply_text(f"Hello {name}! Welcome to IS section 3 Bot:", reply_markup=reply_markup)
+    await update.message.reply_text(f"Hello {name}! 🫠🫠Welcome to IS section 3 Bot🫠🫠:", reply_markup=reply_markup)
 
 async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[subject] for subject in subjects]
+    keyboard.append(["Exit"])  # Add Exit button
+
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        "📚 * Enter the Date when u submit assignment in the caption * Please select the subject for which you want to submit the assignment:",
+        "📚 🙏🏻Enter the Date when u submit assignment in the caption🙏🏻\nPlease select the subject for which you want to submit the assignment:",
         reply_markup=reply_markup
     )
     context.user_data["selecting_subject"] = True
@@ -98,6 +100,10 @@ async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT
 async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.document:
         file = update.message.document
+        
+        if file.file_size > 50 * 1024 * 1024:  # 50 MB in bytes
+            await update.message.reply_text("❌ The file is too large. Please upload a file smaller than 50 MB.")
+            return
         subject = context.user_data.get("selected_subject", "Unknown Subject")  # Default to "Unknown Subject"
         os.makedirs(f"submissions/{subject}", exist_ok=True)
         file_path = f"submissions/{subject}/{file.file_name}"
@@ -120,11 +126,12 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
         )
         context.user_data.pop("selected_subject", None)
     else:
-        await update.message.reply_text("⚠️ Please send a valid document.")
+        await update.message.reply_text("⚠️ Please send a valid document.⚠️")
         
 async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if str(update.effective_user.id) == ADMIN_ID:
         keyboard = [[subject] for subject in subjects]
+        keyboard.append(["Exit"])  # Add Exit button
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
             "📚 Please select the subject to view assignments:",
@@ -170,7 +177,7 @@ async def handle_post_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("✉️ Send the message to broadcast.")
 
 async def buy_me_coffee(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Buy me coffee? @kipa_s 😁")
+    await update.message.reply_text("Buy me coffee? @kipa_s 😁😁")
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -270,31 +277,32 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Invalid subject. Please select a valid subject from the list.")
         return
+   
+   
     if context.user_data.get("filtering_by_date"):
         try:
             # Parse the entered date
             entered_date = datetime.strptime(text, "%Y-%m-%d").strftime("%Y-%m-%d")
             context.user_data["filtering_by_date"] = False
-        except ValueError:
-            await update.message.reply_text("❌ Invalid date format. Please enter the date in `YYYY-MM-DD` format.")
-            return
 
-    try:
-        # Filter assignments by the entered date
-        date_files = [file for file in submitted_files if file.get("submission_date") == entered_date]
-        if date_files:
-            for file in date_files:
-                await context.bot.send_document(
-                    chat_id=ADMIN_ID,
-                    document=file["file_id"],
-                    caption=f"📂 File: {file['file_name']}\nSubject: {file['subject']}\nSubmitted by: @{file['submitted_by']}\nDate: {file['submission_date']}"
-                )
-            await update.message.reply_text(f"✅ All assignments submitted on *{entered_date}* have been sent to you.")
-        else:
-            await update.message.reply_text(f"ℹ️ No assignments were submitted on *{entered_date}*.")
-    except ValueError:
-        await update.message.reply_text("❌ Invalid date format. Please enter the date in `YYYY-MM-DD` format.")
-    return
+            # Filter assignments by the entered date
+            date_files = [file for file in submitted_files if file.get("submission_date") == entered_date]
+            if date_files:
+                for file in date_files:
+                    await context.bot.send_document(
+                        chat_id=ADMIN_ID,
+                        document=file["file_id"],
+                        caption=f"📂 File: {file['file_name']}\nSubject: {file['subject']}\nSubmitted by: @{file['submitted_by']}\nDate: {file['submission_date']}"
+                    )
+                await update.message.reply_text(f"✅ All assignments submitted on *{entered_date}* have been sent to you.")
+            else:
+                await update.message.reply_text(f"ℹ️ No assignments were submitted on *{entered_date}*.")
+            
+        except ValueError:
+        # Handle invalid date format
+              await update.message.reply_text("❌ Invalid date format. Please enter the date in `YYYY-MM-DD` format.")
+        return
+    
     # Exam scheduling steps
     if "adding_exam" in context.user_data:
         step = context.user_data["adding_exam"]["step"]
@@ -342,6 +350,23 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Exam scheduling canceled.")
             context.user_data.pop("adding_exam")
 
+
+    if text == "Exit":
+    # Clear any active context
+            context.user_data.pop("selecting_subject", None)
+            context.user_data.pop("viewing_subject", None)
+            context.user_data.pop("filtering_by_date", None)
+
+    # Return to the main menu
+            is_admin = str(update.effective_user.id) == ADMIN_ID
+            keyboard = [
+                ["Exam Announcement", "View Assignments"] if is_admin else ["Submit Group Assignment", "Submit Individual Assignment"],
+                ["Add Exam Date", "Delete Exam"] if is_admin else [],
+                ["Post Message", "Buy me coffee"] if is_admin else ["Exam Announcement", "Buy me coffee"]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            await update.message.reply_text("🔙 Returning to the main menu:", reply_markup=reply_markup)
+            return
 async def remove_past_exams():
     while True:
         now = datetime.now()
