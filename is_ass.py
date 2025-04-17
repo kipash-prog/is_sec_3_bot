@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import asyncio
+from keep_alive import keep_alive
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,6 +10,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
+
 
 # Load environment variables
 load_dotenv()
