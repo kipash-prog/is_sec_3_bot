@@ -155,7 +155,8 @@ async def handle_delete_exam(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["deleting_exam"] = True
     await show_exams(update, context)
     await update.message.reply_text("Please enter the exam number to delete.")
-
+    # Add a comment explaining the purpose of the placeholder section
+    # This section is reserved for additional handlers or logic that may be added in the future.
 async def handle_exam_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if exam_dates:
         keyboard = [[InlineKeyboardButton(f"📚 {exam['name']}", callback_data=f"exam_{i}")] for i, exam in enumerate(exam_dates)]
