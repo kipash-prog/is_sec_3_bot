@@ -2,7 +2,6 @@ import os
 import json
 import uuid
 import asyncio
-from keep_alive import keep_alive
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,7 +9,6 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
-
 
 # Load environment variables
 load_dotenv()
@@ -78,15 +76,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
     save_user_ids()
     is_admin = str(update.effective_user.id) == ADMIN_ID
+
+    # Construct the keyboard
     keyboard = [
-        ["Exam Announcement", "View Assignments"] if is_admin else ["Submit Group Assignment", "Submit Individual Assignment"],
-        ["Add Exam Date", "Delete Exam"] if is_admin else [],
-        ["Post Message", "Buy me coffee"] if is_admin else ["Exam Announcement", "Buy me coffee"]
-    ]
+    ["Exam Announcement", "View Assignments"] if is_admin else ["Submit Group Assignment", "Submit Individual Assignment"],
+    ["Add Exam Date", "Delete Exam"] if is_admin else ["Exam Announcement"],
+    ["Post Message", "Buy me coffee"] if is_admin else ["Manage Files", "Buy me coffee"]
+]
+
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     name = update.effective_user.first_name or "Student"
     await update.message.reply_text(f"Hello {name}! 🫠🫠Welcome to IS section 3 Bot🫠🫠:", reply_markup=reply_markup)
-
 async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[subject] for subject in subjects]
     keyboard.append(["Exit"])  # Add Exit button
@@ -102,11 +102,12 @@ async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT
 async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.document:
         file = update.message.document
-        
+
         if file.file_size > 50 * 1024 * 1024:  # 50 MB in bytes
             await update.message.reply_text("❌ The file is too large. Please upload a file smaller than 50 MB.")
             return
-        subject = context.user_data.get("selected_subject", "Unknown Subject")  # Default to "Unknown Subject"
+
+        subject = context.user_data.get("selected_subject", "Unknown Subject")
         os.makedirs(f"submissions/{subject}", exist_ok=True)
         file_path = f"submissions/{subject}/{file.file_name}"
         new_file = await context.bot.get_file(file.file_id)
@@ -116,8 +117,8 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
             "file_name": file.file_name,
             "file_id": file.file_id,
             "submitted_by": update.effective_user.username or "Unknown User",
-            "subject": subject,  # Ensure "subject" key is always added
-            "submission_date": datetime.now().strftime("%Y-%m-%d")  # Add submission date
+            "subject": subject,
+            "submission_date": datetime.now().strftime("%Y-%m-%d")
         })
         save_submitted_files()
 
@@ -128,8 +129,9 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
         )
         context.user_data.pop("selected_subject", None)
     else:
-        await update.message.reply_text("⚠️ Please send a valid document.⚠️")
+        await update.message.reply_text("⚠️ Please send a valid document.")
         
+            
 async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if str(update.effective_user.id) == ADMIN_ID:
         keyboard = [[subject] for subject in subjects]
@@ -155,24 +157,55 @@ async def handle_delete_exam(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["deleting_exam"] = True
     await show_exams(update, context)
     await update.message.reply_text("Please enter the exam number to delete.")
-    # Add a comment explaining the purpose of the placeholder section
-    # This section is reserved for additional handlers or logic that may be added in the future.
-async def handle_exam_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if exam_dates:
-        keyboard = [[InlineKeyboardButton(f"📚 {exam['name']}", callback_data=f"exam_{i}")] for i, exam in enumerate(exam_dates)]
-        await update.message.reply_text("📅 Scheduled exams:", reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await update.message.reply_text("ℹ️ No exams scheduled.")
 
+async def handle_exam_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    is_admin = str(update.effective_user.id) == ADMIN_ID
+
+    if is_admin:
+        # Admin: Show scheduled exams with options to add or delete
+        if exam_dates:
+            keyboard = [[InlineKeyboardButton(f"📚 {exam['name']}", callback_data=f"exam_{i}")] for i, exam in enumerate(exam_dates)]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("📅 Scheduled exams:", reply_markup=reply_markup)
+        else:
+            await update.message.reply_text("ℹ️ No exams scheduled. Use 'Add Exam' to schedule one.")
+    else:
+        # User: Show scheduled exams interactively
+        if exam_dates:
+            keyboard = [[InlineKeyboardButton(f"📚 {exam['name']}", callback_data=f"exam_{i}")] for i, exam in enumerate(exam_dates)]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("📅 Click on an exam to view its details:", reply_markup=reply_markup)
+        else:
+            await update.message.reply_text("ℹ️ No exams scheduled.")
+            
 async def handle_exam_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    index = int(query.data.split("_")[1])
-    if 0 <= index < len(exam_dates):
-        exam = exam_dates[index]
-        await query.edit_message_text(
-            f"📚Exam name: {exam['name']}\n📅Exam Date: {exam['date']}\n⏰Exam Time: {exam['time']}\n📝Exam Content: {exam['content']}\n\n✅ Stay prepared!"
-        )
+
+    # Validate query.data format
+    if not query.data or "_" not in query.data:
+        await query.edit_message_text("❌ Invalid exam selection.")
+        return
+
+    try:
+        index = int(query.data.split("_")[1])
+        if 0 <= index < len(exam_dates):
+            exam = exam_dates[index]
+            await query.edit_message_text(
+                f"📚 *Exam Details:*\n"
+                f"📖 *Name:* {exam['name']}\n"
+                f"📅 *Date:* {exam['date']}\n"
+                f"⏰ *Time:* {exam['time']}\n"
+                f"📝 *Content:* {exam['content']}\n\n"
+                "✅ Stay prepared!",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text("❌ Invalid exam index.")
+    except (ValueError, IndexError):
+        await query.edit_message_text("❌ An error occurred while processing your request.")
+        
+        
 
 async def handle_post_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) == ADMIN_ID:
@@ -388,66 +421,71 @@ async def show_exams(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("ℹ️ No exams scheduled.")
 
+
 async def handle_manage_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_files = [file for file in submitted_files if file["submitted_by"] == update.effective_user.username]
+    print(f"DEBUG: Submitted files: {submitted_files}")  # Log all submitted files
+    print(f"DEBUG: User files: {user_files}")  # Log files filtered for the user
+
     if not user_files:
         await update.message.reply_text("ℹ️ You have not submitted any files.")
         return
 
-    keyboard = [[InlineKeyboardButton(f"📂 {file['file_name']}", callback_data=f"file_{i}")] for i, file in enumerate(user_files)]
-    keyboard.append([InlineKeyboardButton("Exit", callback_data="exit")])  # Add Exit button
+    # Create a keyboard with file options
+    keyboard = [
+        [InlineKeyboardButton(f"📂 {file['file_name']}", callback_data=f"delete_{i}")]
+        for i, file in enumerate(user_files)
+    ]
+    keyboard.append([InlineKeyboardButton("Exit", callback_data="exit_manage_files")])  # Add Exit button
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("📂 Your submitted files:", reply_markup=reply_markup)
-    
-    
-async def handle_file_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+ 
+async def handle_file_deletion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "exit":
+    # Handle the "Exit" button
+    if query.data == "exit_manage_files":
         await query.edit_message_text("🔙 Returning to the main menu.")
         return
 
-    index = int(query.data.split("_")[1])
-    user_files = [file for file in submitted_files if file["submitted_by"] == query.from_user.username]
-    if 0 <= index < len(user_files):
-        file = user_files[index]
-        keyboard = [
-            [InlineKeyboardButton("Delete", callback_data=f"delete_{index}")],
-            [InlineKeyboardButton("Resend", callback_data=f"resend_{index}")],
-            [InlineKeyboardButton("Cancel", callback_data="cancel")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            f"📂 File: {file['file_name']}\nSubject: {file['subject']}\nDate: {file['submission_date']}\n\nWhat would you like to do?",
-            reply_markup=reply_markup
-        )
-async def handle_file_delete_or_resend(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    # Debug: Log the callback data
+    print(f"DEBUG: Callback data: {query.data}")
 
-    action, index = query.data.split("_")
-    index = int(index)
-    user_files = [file for file in submitted_files if file["submitted_by"] == query.from_user.username]
+    try:
+        # Extract the file index from the callback data
+        if query.data.startswith("delete_"):
+            index = int(query.data.split("_")[1])
+            user_files = [file for file in submitted_files if file["submitted_by"] == query.from_user.username]
 
-    if 0 <= index < len(user_files):
-        file = user_files[index]
+            # Debug: Log the user's files
+            print(f"DEBUG: User files: {user_files}")
 
-        if action == "delete":
-            submitted_files.remove(file)
-            save_submitted_files()
-            await query.edit_message_text(f"✅ File '{file['file_name']}' has been deleted.")
-        elif action == "resend":
-            await context.bot.send_document(
-                chat_id=ADMIN_ID,
-                document=file["file_id"],
-                caption=f"📂 File: {file['file_name']}\nSubject: {file['subject']}\nSubmitted by: @{file['submitted_by']}"
-            )
-            await query.edit_message_text(f"✅ File '{file['file_name']}' has been resent to the admin.")
-        elif action == "cancel":
-            await query.edit_message_text("❌ Action canceled.")
-            
-            
+            if 0 <= index < len(user_files):
+                file = user_files[index]
+                file_path = f"submissions/{file['subject']}/{file['file_name']}"
+
+                # Remove the file from the filesystem
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"DEBUG: File '{file_path}' deleted from filesystem.")
+                else:
+                    print(f"DEBUG: File '{file_path}' not found on filesystem.")
+
+                # Remove the file from the list
+                submitted_files.remove(file)
+                save_submitted_files()  # Save the updated list to the file
+
+                # Confirm deletion to the user
+                await query.edit_message_text(f"✅ File '{file['file_name']}' has been deleted.")
+            else:
+                await query.edit_message_text("❌ Invalid file selection.")
+        else:
+            await query.edit_message_text("❌ Invalid callback data.")
+    except (ValueError, IndexError) as e:
+        # Debug: Log the error
+        print(f"DEBUG: Error occurred: {e}")
+        await query.edit_message_text("❌ An error occurred while processing your request.")
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_admin = str(update.effective_user.id) == ADMIN_ID
     if is_admin:
@@ -476,6 +514,7 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
     await update.message.reply_text(help_text, parse_mode="Markdown")
 # === Main App ===
+
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -492,11 +531,11 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("View Assignments"), handle_view_assignments))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Post Message"), handle_post_message))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Buy me coffee"), buy_me_coffee))
+    app.add_handler(CallbackQueryHandler(handle_file_deletion, pattern="^(delete_|exit_manage_files)"))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file_submission))
-    app.add_handler(MessageHandler(filters.TEXT, text_router))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Manage Files"), handle_manage_files))
-    app.add_handler(CallbackQueryHandler(handle_file_action, pattern="^file_"))
-    app.add_handler(CallbackQueryHandler(handle_file_delete_or_resend, pattern="^(delete|resend|cancel)_"))
+    app.add_handler(MessageHandler(filters.TEXT, text_router))
+
     async def startup(_: ApplicationBuilder):
         asyncio.create_task(remove_past_exams())
 
