@@ -65,6 +65,9 @@ def load_submitted_files():
     except FileNotFoundError:
         submitted_files = []
 
+def escape_markdown_v2(text):
+    special_chars = r"_*[]()~`>#+-=|{}.!"
+    return "".join(f"\\{char}" if char in special_chars else char for char in text)
 # Load data on startup
 load_user_ids()
 load_exam_dates()
@@ -86,16 +89,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     name = update.effective_user.first_name or "Student"
-    await update.message.reply_text(f"Hello {name}! 🫠🫠Welcome to IS section 3 Bot🫠🫠:", reply_markup=reply_markup)
+    
+    await update.message.reply_text(
+    f"👋 Hello {name}\\! 🫠🫠 Welcome to *IS Section 3 Bot*\\! 🫠🫠\n\n"
+    "📚 I'm here to help you with assignments, exams, and more\\. Let's get started\\! 🚀",
+    reply_markup=reply_markup,
+    parse_mode="MarkdownV2"
+)
+
+
 async def handle_assignment_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[subject] for subject in subjects]
     keyboard.append(["Exit"])  # Add Exit button
 
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        "📚 🙏🏻Enter the Date when u submit assignment in the caption🙏🏻\nPlease select the subject for which you want to submit the assignment:",
-        reply_markup=reply_markup
-    )
+    "📚 🙏🏻 *Enter the date when you submit the assignment in the caption.* 🙏🏻\n\n"
+    "Please select the subject for which you want to submit the assignment:",
+    reply_markup=reply_markup,
+    parse_mode="Markdown"
+)
     context.user_data["selecting_subject"] = True
 
 
@@ -138,10 +151,11 @@ async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_
         keyboard.append(["Exit"])  # Add Exit button
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-            "📚 Please select the subject to view assignments:",
-            reply_markup=reply_markup
-        )
-
+    "📅 *Upcoming Exams*:\n\n"
+    "Click on an exam below to view its details. Stay prepared! 💪",
+    reply_markup=reply_markup,
+    parse_mode="Markdown"
+)
         context.user_data["viewing_subject"] = True
     else:
         await update.message.reply_text("❌ You are not authorized to view assignments.")
@@ -397,7 +411,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_admin = str(update.effective_user.id) == ADMIN_ID
             keyboard = [
     ["Exam Announcement", "View Assignments"] if is_admin else ["Submit Group Assignment", "Submit Individual Assignment"],
-    ["Add Exam Date", "Delete Exam"] if is_admin else [],
+    ["Add Exam Date", "Delete Exam"] if is_admin else ["Exam Announcement"],
     ["Post Message", "Buy me coffee"] if is_admin else ["Manage Files", "Buy me coffee"]
 ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -446,7 +460,15 @@ async def handle_file_deletion(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Handle the "Exit" button
     if query.data == "exit_manage_files":
-        await query.edit_message_text("🔙 Returning to the main menu.")
+        # Return to the main menu
+        is_admin = str(query.from_user.id) == ADMIN_ID
+        keyboard = [
+            ["Exam Announcement", "View Assignments"] if is_admin else ["Submit Group Assignment", "Submit Individual Assignment"],
+            ["Add Exam Date", "Delete Exam"] if is_admin else ["Exam Announcement"],
+            ["Post Message", "Buy me coffee"] if is_admin else ["Manage Files", "Buy me coffee"]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await query.edit_message_text("🔙 Returning to the main menu:", reply_markup=reply_markup)
         return
 
     # Debug: Log the callback data
@@ -486,20 +508,29 @@ async def handle_file_deletion(update: Update, context: ContextTypes.DEFAULT_TYP
         # Debug: Log the error
         print(f"DEBUG: Error occurred: {e}")
         await query.edit_message_text("❌ An error occurred while processing your request.")
+        
+
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_admin = str(update.effective_user.id) == ADMIN_ID
     if is_admin:
-        help_text = (
-            "📖 *Help Menu (Admin)*\n\n"
-            "/start - Start the bot and display the main menu.\n"
-            "/exams - View the list of scheduled exams.\n"
-            "/help - Show this help message.\n\n"
-            "*Admin Features:*\n"
-            "1. Add Exam Date - Schedule a new exam.\n"
-            "2. Delete Exam - Remove an existing exam.\n"
-            "3. Post Message - Broadcast a message to all users.\n"
-            "4. View Assignments - Access submitted assignments.\n"
-        )
+      help_text = (
+    "📖 *Help Menu*\n\n"
+    "Here are the commands you can use:\n\n"
+    "🔹 /start - Start the bot and display the main menu.\n"
+    "🔹 /exams - View the list of scheduled exams.\n"
+    "🔹 /help - Show this help message.\n\n"
+    "💡 *Features for Students:*\n"
+    "1️⃣ Submit Group Assignment - Upload your group assignment.\n"
+    "2️⃣ Submit Individual Assignment - Upload your individual assignment.\n"
+    "3️⃣ Exam Announcement - View scheduled exams.\n"
+    "4️⃣ Buy Me Coffee - A fun interaction with the bot.\n\n"
+    "👨‍💻 *Features for Admins:*\n"
+    "1️⃣ Add Exam Date - Schedule a new exam.\n"
+    "2️⃣ Delete Exam - Remove an existing exam.\n"
+    "3️⃣ Post Message - Broadcast a message to all users.\n"
+    "4️⃣ View Assignments - Access submitted assignments.\n"
+)
+      await update.message.reply_text(help_text, parse_mode="Markdown")
     else:
         help_text = (
             "📖 *Help Menu (Student)*\n\n"
