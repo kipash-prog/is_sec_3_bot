@@ -91,7 +91,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.effective_user.first_name or "Student"
     
     await update.message.reply_text(
-    f"👋 Hello {name}\\! 🫠🫠 Welcome to *IS Section 3 Bot*\\! 🫠🫠\n\n"
+    f"👋 Hello {escape_markdown_v2(name)}\\! 🫠🫠 Welcome to *IS Section 3 Bot*\\! 🫠🫠\n\n"
     "📚 I'm here to help you with assignments, exams, and more\\. Let's get started\\! 🚀",
     reply_markup=reply_markup,
     parse_mode="MarkdownV2"
@@ -151,8 +151,8 @@ async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_
         keyboard.append(["Exit"])  # Add Exit button
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-    "📅 *Upcoming Exams*:\n\n"
-    "Click on an exam below to view its details. Stay prepared! 💪",
+    "📅 *Assignments*:\n\n"
+    "Click on an the subject below to view its details! 💪",
     reply_markup=reply_markup,
     parse_mode="Markdown"
 )
