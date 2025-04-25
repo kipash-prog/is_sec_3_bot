@@ -157,6 +157,7 @@ async def handle_view_assignments(update: Update, context: ContextTypes.DEFAULT_
     parse_mode="Markdown"
 )
         context.user_data["viewing_subject"] = True
+        #user can't see the result of assignment
     else:
         await update.message.reply_text("❌ You are not authorized to view assignments.")
 async def handle_add_exam_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -220,7 +221,7 @@ async def handle_exam_details(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ An error occurred while processing your request.")
         
         
-
+#help the admin to broadcast message
 async def handle_post_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) == ADMIN_ID:
         context.user_data["pending_broadcast"] = True
@@ -508,8 +509,9 @@ async def handle_file_deletion(update: Update, context: ContextTypes.DEFAULT_TYP
         # Debug: Log the error
         print(f"DEBUG: Error occurred: {e}")
         await query.edit_message_text("❌ An error occurred while processing your request.")
-        
 
+
+#help section
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_admin = str(update.effective_user.id) == ADMIN_ID
     if is_admin:
