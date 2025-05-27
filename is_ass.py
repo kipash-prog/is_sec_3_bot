@@ -9,7 +9,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
-from keep_alive import keep_alive()
+from keep_alive import keep_alive
 
 
 keep_alive()
