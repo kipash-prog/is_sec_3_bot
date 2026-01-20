@@ -19,7 +19,7 @@ The bot operates through a simple command-based interface on Telegram. Users int
 
 The bot ensures a seamless experience for both students and admins, making academic management efficient and hassle-free.
 
-## Technologies Used
+## Technologies Used:
 
 The bot is built using the following technologies and libraries:
 
@@ -75,3 +75,4 @@ This project is licensed under the MIT License.
    cd is-section-3-bot
 
    
+
