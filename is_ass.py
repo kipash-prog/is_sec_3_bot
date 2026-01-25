@@ -18,6 +18,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
 subjects = ["Internet programming(IP)", "Information security", "Networking", "Ecommerce", "OOSAD", "Mobile computing"]
 
+
 if not BOT_TOKEN or not ADMIN_ID:
     raise ValueError("BOT_TOKEN or ADMIN_ID not found in .env file.")
 
